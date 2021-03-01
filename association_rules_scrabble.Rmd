@@ -1,0 +1,236 @@
+---
+title: "Association rules in Scrabble game "
+date: "`r Sys.Date()`"
+output:
+  rmdformats::html_docco:
+    highlight: kate
+---
+
+
+
+# I'am a huge fan of board game called "scrabble". That's why I decided in this paper to check association rules for the game. I hope that it can help me someday winning with friends while playing it. 
+
+What is this game about?
+Scrabble is a board-and-tile game in which two to four players compete in forming words with lettered tiles on a 225-square board.  Each player, when it is his/her turn, has to put a word on the board, using any of the seven letters (seven tiles) that they have in front of them. Their word must join on to what is already on the board. Each letter has got different value, which depends of occurance freequency of it in words. The main goal is to put on the board word with as much points as possible. 
+
+How association rules can help me winning games?
+During the game you have only 2 minutes per round, you need to come up with solution as fast as possible. Having a list of association rules could help finding words with given letters in front of you much faster.  
+
+# Database
+In this paper I used datatabase with most frequent words from english dictionary. It consist of 58109 words. 
+In general in Oxford Dictionary there are 273,000 headwords; 171,476 of them being in current use, 47,156 being obsolete words and around 9,500 derivative words included as subentries.
+
+At the beginng I tried to load data into R as data frame and put each letter of each word in different column. It was not bad solution, but it required huge computation power. I calculated then frequency of occurance of each letter. 
+
+```{r}
+
+words2<-read.delim("https://drive.google.com/uc?export=download&id=1NmBSLqD1FDQ_F-tLinplqg6ldsFVolFF")
+words2<- as.data.frame(words2)
+colnames(words2)[1]<- "word"
+words2$nr_of_letters <- nchar(words2$word)
+max(words2$nr_of_letters)
+for(i in 1:max(words2$nr_of_letters)){
+  words2[,ncol(words2)+1] <- substring(words2$word, i, i)
+  colnames(words2)[ncol(words2)]<- paste0("letter_nr_",i)
+}
+
+```
+
+After this try, I decided to load data as transactions and act with them simmilarlly as we did during our classes. 
+Below I present basic informations about dataset. As we can see in our dataset letter "e", "i" and "s" occur most frequently with values of 39270, 31772 and 30717 times respectively. 
+On the other hand most popular are words that consist of 7 letters. 
+
+
+```{r}
+library("arules")
+library("arulesViz")
+
+scrabble <-read.transactions("https://drive.google.com/uc?export=download&id=1JAdvjqZC86dFTl9jTPb3Ag-VyIO0m_rR", sep=",")
+summary(scrabble)
+```
+
+
+```{r}
+size(scrabble[1:200])
+```
+
+ Below I run some basic informations about this database as:
+ - size of database
+ - in how many words given letter occur (in % of all words)
+ - in how many words given letter occur (absolute value)
+```{r}
+inspect(head(scrabble))
+length(scrabble)
+itemFrequency(scrabble, type="relative")
+itemFrequency(scrabble, type="absolute")
+```
+
+```{r}
+#install.packages("RColorBrewer")
+library("RColorBrewer")
+```
+
+
+Some basic visualisation of this statistics
+
+```{r}
+itemFrequencyPlot(scrabble, topN = 26, col=brewer.pal(n = 26, name = "RdBu"))
+```
+
+```{r}
+#Visualisation of different letters occurances in random 50 words.
+#We can see which leeter occurs in these words.
+image(sample(scrabble, 50))
+```
+
+# Apriori algorithm 
+
+## What is Apriori algorithm? 
+Apriori is an algorithm for frequent item set mining and association rule learning over relational databases. It proceeds by identifying the frequent individual items in the database and extending them to larger and larger item sets as long as those item sets appear sufficiently often in the database. The frequent item sets determined by Apriori can be used to determine association rules which highlight general trends in the database: this has applications in domains such as market basket analysis. **
+
+
+## Important rules
+
+Association rules analysis is a technique to uncover how items are associated to each other. There are three common ways to measure association.
+
+### 1. Support.
+This says how popular an itemset is, as measured by the proportion of transactions in which an itemset appears. 
+
+If you discover that usage of given items beyond a certain proportion tend to have a significant impact on your scrabble game decision, you might consider using that proportion as your support threshold. You may then identify itemsets with support values above this threshold as significant itemsets
+
+### 2. Confidence. 
+This says how likely item Y occurs in the word, when item X occurs, expressed as {X -> Y}. 
+This is measured by the proportion for example of words with letter K, in which letter E also appears. 
+
+One drawback of the confidence measure is that it might misrepresent the importance of an association.
+This is because it only accounts for how popular for example letter "k" is, but not letter "e". If K is also very popular in general, there will be a higher chance that a transaction containing apples will also contain E, thus inflating the confidence measure. To account for the base popularity of both constituent letters, we use a third measure called lift.
+
+### 3. Lift
+
+This says how likely letter K occurs, when letter E occurs, while controlling for how popular both letters are. 
+A lift value greater than 1 means that letter K is likely to occur if letter E occurs, while a value less than 1 means that letter K is unlikely to occur if letter E occurs in a given word.***
+
+
+```{r}
+# Finding the association rules using the apriori algorithm for 2 letters, that occurs together at least in 20% of words, with confidence of min 50%
+
+scrabblerules2 <- apriori(scrabble, parameter = list(support = 0.2, confidence = 0.5,  minlen = 2, maxlen=2))
+summary(scrabblerules2)
+inspect(scrabblerules2[1:5])
+
+```
+As we can see there are just 35 rules like this (some of them are doubled)
+
+We can check simmilar rules for 3 letters
+```{r}
+# Finding the association rules using the apriori algorithm for 3 letters, that occurs together at least in 15% of words, with confidence of min 40%
+
+scrabblerules3 <- apriori(scrabble, parameter = list(support = 0.15, confidence = 0.4,  minlen = 3, maxlen=3))
+summary(scrabblerules3)
+inspect(scrabblerules3[1:10])
+
+```
+For different values of support we recieve different nr of rules:
+support =0,15 & confidence =0,4  -> There are 60 rules 
+support =0,10 & confidence =0,4  -> There are 185 rules 
+support =0,10 & confidence =0,6  -> There are 46 rules 
+support =0,10 & confidence =0,75  -> There are 6 rules 
+
+
+We can check simmilar rules for 4 or more letters. 
+As the number of elements (letters rises, looking at support becomes less reasonable, as probablility of occurance this situation in dataset drops significantly )
+```{r}
+# Finding the association rules using the apriori algorithm for 4 or more letters, that occurs together at least in 15% of words, with confidence of min 40%
+scrabblerules4 <- apriori(scrabble, parameter = list(support = 0.05, confidence = 0.5,  minlen = 4))
+summary(scrabblerules4)
+inspect(scrabblerules4[1:10])
+
+```
+With confidence of 50% and support of 5% we obtained:
+- 242 rules for 4letter words
+- 24 rules for 5letter words
+
+It is remember that some of these rules are duplicated, so ex. for 5letter words there are only 5 distinctive rules and 19 rules that are left are just duplicates of these 5 rules.
+
+
+To look at some more meaningful data we can look at "lift" measurement and nr of observations named as "count".
+
+```{r}
+
+inspect(sort(scrabblerules4, by = "lift")[1:10])
+```
+```{r}
+inspect(sort(scrabblerules4, by = "count")[1:10])
+```
+
+
+## Influance on scrabble game 
+While playing scrabble we see on the board some leeters that can be connected with our titles with letters. 
+To decide where on the board should we put our letters we ask ourselfs : What letters can I add to ex. letter "p"?
+
+Code below could help us answer this question
+
+```{r}
+rules_scrabble<-apriori(data=scrabble, parameter=list(supp=0.01,conf = 0.05, minlen=4), 
+                          appearance=list(default="lhs", rhs="p"), control=list(verbose=F)) 
+rules_scrabble_lift<-sort(rules_scrabble, by="lift", decreasing=TRUE)
+inspect(head(rules_scrabble_lift))
+```
+
+```{r}
+rules_scrabble_count<-sort(rules_scrabble, by="count", decreasing=TRUE)
+inspect(head(rules_scrabble_count))
+```
+
+```{r}
+rules_scrabble_coverage<-sort(rules_scrabble, by="coverage", decreasing=TRUE)
+inspect(head(rules_scrabble_coverage))
+```
+
+```{r}
+plot(scrabblerules2, measure=c("support","lift"), shading="confidence",main="Two letters")
+```
+```{r}
+plot(scrabblerules3, measure=c("support","lift"), shading="confidence",main="Three letters")
+```
+
+```{r}
+plot(scrabblerules4, measure=c("support","lift"), shading="confidence",main="Four or more letters")
+```
+
+```{r}
+plot(apriori(scrabble, parameter = list(support = 0.15, confidence = 0.5,  minlen = 3)), method="grouped", main= "49 rules, 3 letters minimum")
+
+
+```
+```{r}
+plot(apriori(scrabble, parameter = list(support = 0.2, confidence = 0.5,  minlen = 2)), method="graph", col=rainbow(100))
+```
+## Conclusion
+All of the graphs represent some of the associations rules obtained by apriori algorithm. 
+As we can see, the most frequent letter in the dataset is e, followed by: i s a and r. These letters are also main ones in the last graph and exist in most of the most common association rules. 
+
+Having this kind of assocation rules for each letter could be very helpful like in this example.
+```{r,include=FALSE,echo=FALSE}
+inspect(head(rules_scrabble_count))
+```
+
+By visualising these rules and plots, we can come up with a more detailed explanation of how to make decisions during game.
+
+So when we have given letter we can look for specyfic letters and try to find word containing these letters as the probablility of existing such a word is big. For example: we have letter {} so we look for{}:
+{p} => {e,i,o,r,s}
+{t} => {e,i,n}	
+{k} => {a,c,w}	
+{t} => {e,i,n}	
+{l} => {a,b,e,i,y}
+...
+ect.
+
+I hope this analysis would help us winning games:)
+
+
+### References
+- * https://www.britannica.com/sports/Scrabble
+- ** Apriori algorithm. (2021, January 18). Retrieved February 28, 2021, from https://en.wikipedia.org/wiki/Apriori_algorithm
+- *** https://www.kdnuggets.com/2016/04/association-rules-apriori-algorithm-tutorial.html
+- R code from classes

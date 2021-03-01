@@ -1,0 +1,378 @@
+---
+title: "Clustering shopping data"
+author: "Adam Dudek"
+date: "`r Sys.Date()`"
+output:
+  rmdformats::html_docco:
+    highlight: kate
+---
+
+
+#### Aim of the paper
+
+## In this paper I am gonna show what steps should be taken to determine the optimal number of clusters in a data set. I will describe different methods for determining the optimal number of clusters for k-means, k-medoids (PAM) and CLARA clustering. Afterwards, I will compare obtained results.
+To do it database with informations about people spendings on shopping was downloaded. I did clustering for 3 different datasets: 
+- first one with spendings and age of customers 
+- second one with spendings and income of customers
+- third one with age and income of customers
+
+### Clustering overview
+Clustering is a Machine Learning technique that involves the grouping of data points. Given a set of data points, we can use a clustering algorithm to classify each data point into a specific group. In theory, data points that are in the same group should have similar properties and features, while data points in different groups should have highly dissimilar properties and features. Clustering is a method of unsupervised learning and is a common technique for statistical data analysis used in many fields.
+
+There are several algorithms for clustering data. For document clustering the most popular is probably k-means algortihm, which is often compared with spherical k-means. The difference in those approaches is that in kmeans usually the euclidean distance is minimized, when in spherical k-means, the cosine dissimilarity is minimized.
+
+
+### Dataset and preprocessing
+Now we insert all needed libraries, load dataset from website and check if we have some missing values
+
+``` {r,results='asis', cache=TRUE, warning=FALSE,echo=FALSE, message=FALSE}
+library(factoextra)
+library(flexclust)
+library(fpc)
+library(stats)
+library(clustertend)
+library(cluster)
+library(ClusterR)
+library(gridExtra)
+library(grid)
+library(ggplot2)
+library(lattice)
+
+rm(list=ls())
+```
+
+```{r}
+mall_stats <- data.frame(read.csv("https://drive.google.com/u/0/uc?id=1_0WiCQj1_Uv8_aCnCTcdO2YTHpzQbDZf&export=download", sep=","))
+mall_stats <-  na.omit(mall_stats) 
+mall_stats <-drop(mall_stats[-1])
+colnames(mall_stats) <- c("Gender", "Age","Annual_Income", "Spending_Score")
+
+```
+
+### Dataset description
+Downloaded dataset contains informations about people and their spendings on shopping.
+Dataset consist of 4 columns: 
+- Gender
+- Age
+- Annual Income
+- Spending Score (from 1, that is the lowest value, to 100, the highest one)
+
+```{r}
+
+head(mall_stats)
+library(ggplot2)
+plot1 <- ggplot(mall_stats, aes(x=Gender,y = stat(count))) + geom_bar( fill= c("pink","steelblue"), width=0.3) 
+x11()
+print(plot1)
+
+plot2 <-ggplot(mall_stats, aes(Age)) +geom_bar(fill=heat.colors(length(unique(mall_stats$Age))), width=0.7)
+x11()
+print(plot2)
+
+plot3 <-ggplot(mall_stats, aes(Spending_Score)) +geom_bar(fill=rainbow(length(unique(mall_stats$Spending_Score))), width=0.7)
+x11()
+print(plot3)
+
+mall_stats$Gender = gsub("Male", 1, mall_stats$Gender, fixed = TRUE)
+mall_stats$Gender = gsub("Female", 0, mall_stats$Gender, fixed = TRUE)
+mall_stats$Gender = as.numeric(mall_stats$Gender)
+```
+
+## Initial analysis
+In the first steps of the analysis, I will inspect the detailed information of the data, calculate basic statistics and explore the relationship between variables.
+Since the values of variables are on different scales I will normalize them using scale() function in order to get proper and interpretable results.
+Afterwards, we check correlation between variables 
+
+```{r}
+library(corrplot)
+summary(mall_stats)
+
+mall_stats_scale <- data.frame( scale(mall_stats))
+mall_stats_scale_matrix <- data.matrix(mall_stats_scale, rownames.force = NA)
+M <- cor(mall_stats_scale_matrix)
+
+x11()
+col <- colorRampPalette(c("#BB4444", "#EE9988", "#FFFFFF", "#77AADD", "#4477AA"))
+corrplot(M, method = "color", col = col(200),
+         type = "upper", order = "hclust", number.cex = .7,
+         addCoef.col = "black", # Add coefficient of correlation
+         tl.col = "black", tl.srt = 90, # Text label color and rotation
+        
+         diag = TRUE)
+```
+
+
+
+### Visualisation of datasets
+
+## Basic visualisation of customers spendings and age
+```{r}
+library(ClusterR)
+age_spendings<- mall_stats[,c(2,4)]
+age_spendings_scale <- as.data.frame(lapply(age_spendings, scale))
+mall_center <- center_scale(age_spendings_scale )
+
+plot5 <-ggplot(mall_stats, aes(x=Age, y=Spending_Score)) +
+  geom_point(shape=18, colour = "pink", size = 4) + geom_point(shape=18,colour = "black", size = 2.5)  
+x11()
+print(plot5)
+```
+
+
+## Basic visualisation of customers spendings and incomes
+```{r}
+library(ClusterR)
+income_spendings<- mall_stats[,c(3,4)]
+income_spendings_scale <- as.data.frame(lapply(income_spendings, scale))
+mall_center <- center_scale(income_spendings_scale )
+plot6 <-ggplot(mall_stats, aes(x=Annual_Income, y=Spending_Score))+
+  geom_point(shape=18, colour = "pink", size = 4)  + geom_point(shape=18,colour = "black", size = 2.5) 
+x11()
+print(plot6)
+```
+
+## Basic visualisation of customers income and age
+```{r}
+library(ClusterR)
+income_age<- mall_stats[,c(2,3)]
+income_age_scale <- as.data.frame(lapply(income_age, scale))
+mall_center <- center_scale(income_age_scale)
+plot6 <-ggplot(mall_stats, aes(x=Age, y=Annual_Income)) +
+  geom_point(shape=18, colour = "pink", size = 4) + geom_point(shape=18,colour = "black", size = 2.5) 
+x11()
+print(plot6)
+```
+
+### Used methods
+
+
+## K-means, PAM (Partitioning Around Medodoids) and CLARA (Clustering Large Applications) were used. These are algorithm aimed to divide data into groups (clusters), with K number of groups.
+
+In all mentioned above methods each object belongs to one and only one cluster. In a soft clustering method, by contrast, a single object can belong to many clusters, often with a confidence.
+
+
+
+## K-means
+K-means method aims to divide data into K clusters by finding K centroids. Centroids are invented or existing points that represent the centers of the clusters. In K-means clustering the aim is to indetify K number of centroids and allocate every object to the nearest cluster.
+
+The algorithm for K-means is as follows:
+
+- Place K points into the object data space. These points represent the initial group of centroids,
+- Assign each data point to the closest centroid, based on Euclidean distance or other,
+- Recalculate the positions of the K centroids. This is done by taking the mean of all data points assigned to that centroid cluster,
+
+Repeat steps 2 and 3 until the posistions of the centroids no longer change and the sum of distances of individual units from centroids is as small as possible.
+
+
+
+## PAM method
+
+The main difference between K-means and PAM method is that K-means uses centroids, while PAM uses medodoids, which are always the actual points in the dataset.
+
+The algorith for PAM is similar to K-mean s algorithm:
+- Select random K objects for an initial set of medodoids
+- Assign each data point to the closest centroid, based on Euclidean distance or other
+- Try to improve the quality of clustering by exchanging selected objects with unselected objects,
+
+Repeat steps 2 and 3 until the average distance of objects from medodoids is minimised.
+
+
+
+## CLARA method
+
+CLARA (Clustering Large Applications) is an extension to PAM method.
+CLARA applies PAM algorithm not to the entire data set, but to a small sample of the data. It repeats the procedure of sampling and applying a pre-specified number of times so that the sampling bias is minimised. CLARA algorithm allows to reduce computing time and RAM memory problem which might happen while analysing a large dataset. This method is dedicated for data containing a large number of objects. Despite this fact it was used in this paper to show differences in results between CLARA and PAM methods.
+
+
+
+## Methods for determining the optimal number of clusters for k-means, k-medoids (PAM) and CLARA clustering.
+Methods used in this paper are two direct methods "Elbow method" and "Average silhouette method".
+
+
+## Elbow method
+
+Recall that, the basic idea behind partitioning methods, such as k-means clustering, is to define clusters such that the total intra-cluster variation [or total within-cluster sum of square (WSS)] is minimized. The total WSS measures the compactness of the clustering and we want it to be as small as possible.
+
+The Elbow method looks at the total WSS as a function of the number of clusters: One should choose a number of clusters so that adding another cluster doesnt improve much better the total WSS.
+
+
+
+## Average silhouette method
+
+The average silhouette approach measures the quality of a clustering. That is, it determines how well each object lies within its cluster. A high average silhouette width indicates a good clustering.
+
+Average silhouette method computes the average silhouette of observations for different values of k. The optimal number of clusters k is the one that maximize the average silhouette over a range of possible values for k.
+
+
+```{r}
+library(factoextra)
+library(clustertend)
+library(cluster)
+library(ClusterR)
+library(gridExtra)
+library(grid)
+
+x11()
+opt_mall1<- fviz_nbclust(age_spendings_scale,kmeans,method = "s") +ggtitle("kmeans Silhouette" )+xlab("Number of clusters") + ylab("Silhouette")
+opt_mall2 <- fviz_nbclust(age_spendings_scale,kmeans,method = "wss")+ggtitle("kmeans WSS")+xlab("Number of clusters") + ylab("WSS")
+
+opt_mall3<- fviz_nbclust(age_spendings_scale,pam,method = "s") +ggtitle("PAM Silhouette" )+xlab("Number of clusters") + ylab("Silhouette")
+opt_mall4 <- fviz_nbclust(age_spendings_scale,pam,method = "wss")+ggtitle("PAM WSS")+xlab("Number of clusters") + ylab("WSS")
+
+opt_mall5<- fviz_nbclust(age_spendings_scale,clara,method = "s") +ggtitle("CLARA Silhouette" )+xlab("Number of clusters") + ylab("Silhouette")
+opt_mall6 <- fviz_nbclust(age_spendings_scale,clara,method = "wss")+ggtitle("CLARA WSS")+xlab("Number of clusters") + ylab("WSS")
+
+grid.arrange(opt_mall1, opt_mall2, opt_mall3,opt_mall4, opt_mall5, opt_mall6, ncol=2, top = "Optimal number of clusters in Age_Spending group")
+
+```
+
+
+
+For both "Average silhouette method" and "Elbow method" we can see that optimal number of clusters for this database are 2.
+On the grphics below we can see how data are clustered in different clustering method. 
+
+```{r, echo=FALSE}
+clust1 <- eclust(age_spendings,k=2,hc_metric = 'euclidean', graph = FALSE)
+pam1 <- eclust(age_spendings_scale,'pam',k=2,hc_metric = 'euclidean', graph = FALSE)
+clara1 <- eclust(age_spendings_scale,'clara',k=2,hc_metric = 'euclidean', graph = FALSE)
+
+c1 <- fviz_cluster(clust1, geom = c("point")) + ggtitle('K-means with 2 clusters')
+c2 <- fviz_cluster(pam1, geom = c("point")) + ggtitle('PAM with 2 clusters')
+c3 <- fviz_cluster(clara1, geom = c("point")) + ggtitle('CLARA with 2 clusters')
+x11()
+grid.arrange(arrangeGrob(c1,c2,c3, ncol=3 , top = "Clustering"))
+```
+
+
+Silhouette (Si) analysis is a cluster validation approach that measures how well an observation is clustered and it estimates the average distance between clusters
+
+- Observations with a large silhouhette Si (almost 1) are very well clustered.
+
+- A small Si (around 0) means that the observation lies between two clusters.
+
+- Observations with a negative Si are probably placed in the wrong cluster.
+
+
+
+Graphics on the left side represents data clustered by k-means method. We can see that a lot of the data have value above 0.5 and only few of them are below 0, what means that data is clustered qiute good. 
+
+Graphics in the middel represents data clustered by PAM method. We can see that first cluster have bigger value in this method than in k-means method, but in second cluster some observations have silhouhette Si value below 0, what means, that they are probably placed in the wrong cluster. 
+
+Grpahics on the pright represents dataa clustered by CLARA method. As clara method is very simmilar to PAM method and shouldnt be used for smaller data samples, I wont interpret it. Despite it it looks simmilar to second graph.
+
+```{r, echo=FALSE}
+d1<- fviz_silhouette(clust1)
+d2<- fviz_silhouette(pam1)
+d3<- fviz_silhouette(clara1)
+grid.arrange(arrangeGrob(d1,d2,d3, ncol=3 , top = "Clustering"))
+```
+
+## I generated also simmilar clustering graphs for different datasets: Income & spendings and Income & age. Interpretations are not provided as it is simmilar to previous ones.
+
+
+
+## Income & spendings DATASET
+
+```{r, echo=FALSE}
+library(factoextra)
+library(clustertend)
+library(cluster)
+library(ClusterR)
+library(gridExtra)
+library(grid)
+
+x11()
+opt_mall11<- fviz_nbclust(income_spendings_scale,kmeans,method = "s") +ggtitle("kmeans Silhouette" )+xlab("Number of clusters") + ylab("Silhouette")
+opt_mall22 <- fviz_nbclust(income_spendings_scale,kmeans,method = "wss")+ggtitle("kmeans WSS")+xlab("Number of clusters") + ylab("WSS")
+
+opt_mall33<- fviz_nbclust(income_spendings_scale,pam,method = "s") +ggtitle("PAM Silhouettes" )+xlab("Number of clusters") + ylab("Silhouette")
+opt_mall44 <- fviz_nbclust(income_spendings_scale,pam,method = "wss")+ggtitle("PAM WSS")+xlab("Number of clusters") + ylab("WSS")
+
+opt_mall55<- fviz_nbclust(income_spendings_scale,clara,method = "s") +ggtitle("CLARA Silhouette" )+xlab("Number of clusters") + ylab("Silhouette")
+opt_mall66 <- fviz_nbclust(income_spendings_scale,clara,method = "wss")+ggtitle("CLARA WSS")+xlab("Number of clusters") + ylab("WSS")
+
+grid.arrange(opt_mall11, opt_mall22, opt_mall33,opt_mall44, opt_mall55, opt_mall66, ncol=2, top = "Optimal number of clusters in Income_Spending group")
+
+clust2 <- eclust(income_spendings,k=6,hc_metric = 'euclidean', graph = FALSE)
+pam2 <- eclust(income_spendings,'pam',k=5,hc_metric = 'euclidean', graph = FALSE)
+clara2 <- eclust(income_spendings,'clara',k=5,hc_metric = 'euclidean', graph = FALSE)
+
+c11 <- fviz_cluster(clust2, geom = c("point")) + ggtitle('K-means with 6 clusters')
+c22 <- fviz_cluster(pam2, geom = c("point")) + ggtitle('PAM with 5 clusters')
+c33 <- fviz_cluster(clara2, geom = c("point")) + ggtitle('CLARA with 5 clusters')
+x11()
+grid.arrange(arrangeGrob(c11,c22,c33, ncol=3 , top = "Clustering"))
+
+d11<- fviz_silhouette(clust2)
+d22<- fviz_silhouette(pam2)
+d33<- fviz_silhouette(clara2)
+grid.arrange(arrangeGrob(d11,d22,d33, ncol=3 , top = "Clustering"))
+
+```
+
+
+
+
+
+
+## Income & age DATASET
+
+
+
+```{r, echo=FALSE}
+
+library(factoextra)
+library(clustertend)
+library(cluster)
+library(ClusterR)
+library(gridExtra)
+library(grid)
+
+x11()
+opt_mall111<- fviz_nbclust(income_age_scale,kmeans,method = "s") +ggtitle("kmeans Silhouette" )+xlab("Number of clusters") + ylab("Silhouette")
+opt_mall222 <- fviz_nbclust(income_age_scale,kmeans,method = "wss")+ggtitle("kmeans WSS")+xlab("Number of clusters") + ylab("WSS")
+
+opt_mall333<- fviz_nbclust(income_age_scale,pam,method = "s") +ggtitle("PAM Silhouette" )+xlab("Number of clusters") + ylab("Silhouette")
+opt_mall444<- fviz_nbclust(income_age_scale,pam,method = "wss")+ggtitle("PAM WSS")+xlab("Number of clusters") + ylab("WSS")
+
+opt_mall555<- fviz_nbclust(income_age_scale,clara,method = "s") +ggtitle("CLARA Silhouette" )+xlab("Number of clusters") + ylab("Silhouette")
+opt_mall666 <- fviz_nbclust(income_age_scale,clara,method = "wss")+ggtitle("CLARA WSS")+xlab("Number of clusters") + ylab("WSS")
+
+grid.arrange(opt_mall111, opt_mall222, opt_mall333,opt_mall444, opt_mall555, opt_mall666, ncol=2, top = "Optimal number of clusters in income_age group")
+
+clust3 <- eclust(income_age,k=3,hc_metric = 'euclidean', graph = FALSE)
+pam3 <- eclust(income_age,'pam',k=3,hc_metric = 'euclidean', graph = FALSE)
+clara3 <- eclust(income_age,'clara',k=3,hc_metric = 'euclidean', graph = FALSE)
+
+c111 <- fviz_cluster(clust3, geom = c("point")) + ggtitle('K-means with 3 clusters')
+c222 <- fviz_cluster(pam3, geom = c("point")) + ggtitle('PAM with 3 clusters')
+c333 <- fviz_cluster(clara3, geom = c("point")) + ggtitle('CLARA with 3 clusters')
+x11()
+grid.arrange(arrangeGrob(c111,c222,c333, ncol=3 , top = "Clustering"))
+
+d111<- fviz_silhouette(clust3)
+d222<- fviz_silhouette(pam3)
+d333<- fviz_silhouette(clara3)
+grid.arrange(arrangeGrob(d111,d222,d333, ncol=3 , top = "Clustering"))
+```
+
+
+### CONCLUSION
+To determine the optimal number of clusters k-means, k-medoids (PAM) and CLARA method were used. These methods were used in 3 different datasets: 
+
+- First one with information about customers spendings and age 
+- second one with information about customers spendings and income 
+- third one with information about customers age and income 
+
+Conducted clustering methods showed that 2 clusters, 5 or 6 clusters and 3 clusters are optimal nr of clusers respectively for first, second and third dataset.
+It is intresting how different the same data are devided into simmilar number of clusters. We can see this for example in penultimate picture. 
+
+
+
+
+### Sources
+https://www.datanovia.com/en/lessons/determining-the-optimal-number-of-clusters-3-must-know-methods/
+https://www.researchgate.net/publication/260549172_A_Comparative_Study_on_K_Means_and_PAM_Algorithm_using_Physical_Characters_of_Different_Varieties_of_Mango_in_India
+https://rpubs.com/KAndruszek/471982
+https://rpubs.com/eosowska/clustering
+
